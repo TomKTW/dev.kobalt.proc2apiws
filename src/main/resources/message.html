@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Failure</title>
+    <meta content="text/html;charset=UTF-8" http-equiv="Content-Type">
+    <meta content="width=device-width, initial-scale=1.0, shrink-to-fit=no" name="viewport">
+    <style>
+        * {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	font: inherit;
+	font-size: 100%;
+	font-weight: normal;
+	font-family: 'DejaVu Sans', Verdana, Helvetica, sans-serif;
+	color: z000000;
+	vertical-align: baseline;
+	box-sizing: border-box;
+}
+
+body {
+	background: #ffffff;
+}
+
+.message {
+	width: 100%;
+	position: absolute;
+	top: 50%;
+	transform: translatey(-50%);
+}
+
+input[type='button'] {
+    padding:8px;
+	background-color: #dddddd;
+}
+
+input[type='button']:hover {
+    padding:8px;
+	background-color: #aaaaaa;
+}
+
+main .message h1 {
+	padding: 8px;
+	font-size: 1.50em;
+	text-align: center;
+}
+
+main .message p {
+	padding: 8px;
+	line-height: 1.5em;
+	font-size: 1.00em;
+	text-align: center;
+}
+
+@media screen and (prefers-color-scheme: dark) {
+	* {
+		color: #ffffff;
+	}
+
+	body {
+		background: #000000;
+	}
+
+	input[type='button'] {
+		background-color: #333333;
+	}
+
+	input[type='button']:hover {
+		background-color: #555555;
+	}
+}
+    </style>
+</head>
+<body>
+<main>
+    <div class="message">
+        <h1>$title$</h1>
+        <p>$description$</p>
+        <p><input onclick="history.back()" type="button" value="Return"></p>
+    </div>
+</main>
+</body>
+</html>
