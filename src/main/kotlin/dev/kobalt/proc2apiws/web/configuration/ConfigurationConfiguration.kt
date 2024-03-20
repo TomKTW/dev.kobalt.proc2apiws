@@ -16,10 +16,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package dev.kobalt.proc2apiws.web.inputstream
+package dev.kobalt.proc2apiws.web.configuration
 
-/** Exception representing a scenario where the input stream size exceeds maximum size of input stream. */
-class InputStreamSizeLimitReachedException(
-    val maxSize: Long,
-    val currentSize: Long
-) : Exception("Input stream size limit ($maxSize bytes) reached: $currentSize bytes.")
+/** Configuration for configuration repository. */
+class ConfigurationConfiguration(
+    /** @see [ConfigurationEntity.command] */
+    var command: List<String>? = null
+) {
+
+    companion object {
+        const val NAME = "Configuration"
+    }
+
+}

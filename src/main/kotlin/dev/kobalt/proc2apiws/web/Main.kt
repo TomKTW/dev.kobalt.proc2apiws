@@ -18,10 +18,10 @@
 
 package dev.kobalt.proc2apiws.web
 
+import dev.kobalt.proc2apiws.web.configuration.*
+import dev.kobalt.proc2apiws.web.extension.isLocatedIn
 import dev.kobalt.proc2apiws.web.inputstream.InputStreamSizeLimitReachedException
 import dev.kobalt.proc2apiws.web.inputstream.LimitedSizeInputStream
-import dev.kobalt.md2htmlws.jvm.extension.isLocatedIn
-import dev.kobalt.md2htmlws.jvm.storage.*
 import io.ktor.http.*
 import io.ktor.http.content.*
 import io.ktor.server.application.*
@@ -39,13 +39,15 @@ import io.ktor.server.routing.*
 import kotlinx.cli.ArgParser
 import kotlinx.cli.ArgType
 import kotlinx.coroutines.*
-import kotlinx.serialization.json.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import java.io.ByteArrayOutputStream
-import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import kotlin.io.path.*
 
+/** Main method. */
 suspend fun main(args: Array<String>) {
     // Parse given arguments.
     val parser = ArgParser(
@@ -69,7 +71,7 @@ suspend fun main(args: Array<String>) {
     val configList = configPath?.let {
         Json.parseToJsonElement(Path(it).readText()).jsonArray
     }?.mapNotNull {
-        it.jsonObject.toStorageConfigEntity()
+        it.jsonObject.toConfigurationEntity()
     }.orEmpty()
     // Generate nginx configuration if path was set for it.
     nginxConfigPath?.let { path ->
@@ -77,11 +79,13 @@ suspend fun main(args: Array<String>) {
     }
     // Prepare and start servers.
     configList.map { config ->
+        // Every server will launch separately and placed to wait until shutdown is requested.
         mainScope.async(
             context = Dispatchers.IO + NonCancellable,
             start = CoroutineStart.LAZY
         ) {
             setupServer(config).also {
+                // Add shutdown hook to stop the server gracefully.
                 Runtime.getRuntime().addShutdownHook(thread(start = false) {
                     it.stop(0, 10, TimeUnit.SECONDS)
                 })
@@ -93,24 +97,22 @@ suspend fun main(args: Array<String>) {
 }
 
 /** Returns an instance of server with configuration from given entity .*/
-fun setupServer(config: StorageConfigEntity) = embeddedServer(CIO, config.port, config.host) {
+fun setupServer(config: ConfigurationEntity) = embeddedServer(CIO, config.port, config.host) {
     install(ForwardedHeaders)
     install(DefaultHeaders)
     install(CallLogging)
     install(Compression)
-    install(StoragePlugin) {
-        command = config.command
-    }
+    install(ConfigurationPlugin) { command = config.command }
     install(IgnoreTrailingSlash)
     install(CachingHeaders) { options { _, _ -> CachingOptions(CacheControl.MaxAge(maxAgeSeconds = 0)) } }
     install(StatusPages) {
         exception<Throwable> { call, cause ->
             cause.printStackTrace()
             call.respondText(
-                text = call.application.storage.getMessagePageContent().replace("\$title\$", "Failure").replace(
+                text = call.application.configuration.getMessagePageContent().replace("\$title\$", "Failure").replace(
                     "\$description\$", when (cause) {
-                        is InputStreamSizeLimitReachedException -> "Submitted content is bigger than size limit (500 kB)."
-                        else -> "Conversion was not successful."
+                        is InputStreamSizeLimitReachedException -> "Submitted content is bigger than size limit (${cause.maxSize / 1024}kB maximum, ${cause.currentSize / 1024}kB received)."
+                        else -> "Processing request was not successful."
                     }
                 ),
                 contentType = ContentType.Text.Html,
@@ -121,14 +123,17 @@ fun setupServer(config: StorageConfigEntity) = embeddedServer(CIO, config.port, 
     install(Routing) {
         post {
             runCatching {
-                // TODO: CLEANUP!
-
-
+                // TODO: Add property for selecting part that will be used for original filename.
+                // Original filename of first submitted file part.
                 var originalFilename: String? = null
-                var outputOverride: StorageConfigEntity.Parameter.OutputOverride? = null
-
+                // Override value for changing output filename.
+                var outputOverride: ConfigurationEntity.Parameter.Override? = null
+                // Convert all parts to property keymap.
                 val properties = call.receiveMultipart().readAllParts().mapNotNull { part ->
+                    // Skip parts that are not in configuration.
                     config.parameters.find { it.form == part.name }?.let { parameter ->
+                        // TODO: Add size limit to configuration.
+                        // Read value from part.
                         val value = when (part) {
                             is PartData.FileItem -> LimitedSizeInputStream(
                                 part.streamProvider(),
@@ -139,16 +144,18 @@ fun setupServer(config: StorageConfigEntity) = embeddedServer(CIO, config.port, 
                             is PartData.FormItem -> part.value.takeIf { it.length < 500 * 1024 } ?: throw Exception()
                             else -> throw Exception()
                         }
-
+                        // Get the first original filename from file part and store it for processing without extension.
                         if (originalFilename == null) {
                             originalFilename = when (part) {
                                 is PartData.FileItem -> part.originalFileName
                                 else -> null
                             }?.let { Path(it) }?.nameWithoutExtension
                         }
-
+                        // Skip part if the value is empty and treated as optional.
                         if (parameter.optional && value.isEmpty()) return@let null
+                        // Append prefix and suffix to value.
                         val updatedValue = parameter.valuePrefix.orEmpty() + value + parameter.valueSuffix.orEmpty()
+                        // If parameter value is treated as path, check if it's within legitimate parent range.
                         if (parameter.verifyPath) {
                             val path = Path(updatedValue)
                             val verifyPath = Path(config.pathRestrict)
@@ -156,39 +163,41 @@ fun setupServer(config: StorageConfigEntity) = embeddedServer(CIO, config.port, 
                                 throw Exception()
                             }
                         }
-                        if (parameter.outputOverride.isNotEmpty()) {
-                            outputOverride = parameter.outputOverride.find { it.value == value }?.let {
+                        // If override option exists and matches given value, apply override value.
+                        if (parameter.override.isNotEmpty()) {
+                            outputOverride = parameter.override.find { it.value == value }?.let {
                                 it.copy(outputFilename = it.outputFilename)
                             }
                         }
+                        // If parameter is treated as standard input stream for processing, set key as null.
                         parameter.process.takeIf { !parameter.stdin } to updatedValue
                     }
                 }
+                // Get first property with key as null as that will be used for standard input stream.
                 val input = properties.find { (name, _) -> name == null }?.second.let {
                     when {
-                        it == null -> InputType.NoValue()
-                        else -> InputType.StringValue(it)
+                        it == null -> ConfigurationInputType.NoValue
+                        else -> ConfigurationInputType.StringValue(it)
                     }
                 }
+                // Get remaining properties to map.
                 val parameters = properties.mapNotNull { (name, value) -> name?.let { it to value } }.toMap()
-
+                // Get the value of output type that will be used for processed response.
                 val outputType = when (config.outputType) {
-                    "string" -> OutputType.StringValue
-                    "binary" -> OutputType.ByteArrayValue
+                    "string" -> ConfigurationOutputType.StringValue
+                    "binary" -> ConfigurationOutputType.ByteArrayValue
                     else -> throw Exception()
                 }
-
-                // Convert the data.
+                // Convert the data through output stream.
                 val bytes = ByteArrayOutputStream().use {
-                    application.storage.submit(parameters, input, outputType, it)
+                    application.configuration.submit(parameters, input, outputType, it)
                     it.toByteArray()
                 }
-
+                // Parse the content type for response.
                 val contentType = ContentType.parse(config.outputContentType)
-
-                val outputOverrideFilename =
-                    outputOverride?.outputFilename.orEmpty().replace("\$originalFilename\$", originalFilename ?: "file")
-
+                // Get output filename from override if defined. It will be replaced if '$outputFilename$' is defined in 'outputFilename'.
+                val outputOverrideFilename = outputOverride?.outputFilename.orEmpty()
+                    .replace("\$originalFilename\$", originalFilename ?: "file")
                 // Apply header after conversion to prevent downloading failed page.
                 call.response.header(
                     HttpHeaders.ContentDisposition,
@@ -203,13 +212,15 @@ fun setupServer(config: StorageConfigEntity) = embeddedServer(CIO, config.port, 
                     status = HttpStatusCode.OK,
                     bytes = bytes
                 )
-            }.getOrElse {
-                it.printStackTrace()
+            }.getOrElse { cause ->
+                // TODO: Check if this is redundant. As ironic it might look like, status pages might break inconveniently.
+                cause.printStackTrace()
                 call.respondText(
-                    text = application.storage.getMessagePageContent().replace("\$title\$", "Failure").replace(
-                        "\$description\$", when (it) {
-                            is InputStreamSizeLimitReachedException -> "Submitted content is bigger than size limit (500 kB)."
-                            else -> "Conversion was not successful."
+                    text = call.application.configuration.getMessagePageContent().replace("\$title\$", "Failure")
+                        .replace(
+                            "\$description\$", when (cause) {
+                                is InputStreamSizeLimitReachedException -> "Submitted content is bigger than size limit (${cause.maxSize / 1024}kB maximum, ${cause.currentSize / 1024}kB received)."
+                                else -> "Processing request was not successful."
                         }
                     ),
                     contentType = ContentType.Text.Html,
@@ -218,145 +229,4 @@ fun setupServer(config: StorageConfigEntity) = embeddedServer(CIO, config.port, 
             }
         }
     }
-}.also {
-    Runtime.getRuntime().addShutdownHook(thread(start = false) {
-        it.stop(0, 10, TimeUnit.SECONDS)
-    })
-}.also {
-    it.start(true)
 }
-
-/*
-suspend fun main(args: Array<String>) {
-    // Parse given arguments.
-    val parser = ArgParser(
-        programName = "proc2apiws"
-    )
-    val jarPath by parser.option(
-        type = ArgType.String,
-        fullName = "jarPath",
-        shortName = "jar",
-        description = "Path to converter JAR file"
-    )
-    val httpServerPort by parser.option(
-        type = ArgType.Int,
-        fullName = "httpServerPort",
-        shortName = "hsp",
-        description = "Port to host the server at"
-    )
-    val httpServerHost by parser.option(
-        type = ArgType.String,
-        fullName = "httpServerHost",
-        shortName = "hsh",
-        description = "Host value (127.0.0.1 for private, 0.0.0.0 for public access)"
-    )
-    parser.parse(args)
-
-    val test = String::class
-
-    test.isInstance("abc")
-
-    val formProperties = listOf(
-        "title",
-        "message",
-        "buttons",
-        "icon",
-        "font",
-        "width",
-        "titleBarStartColor",
-        "titleBarEndColor",
-        "titleBarTextColor",
-        "windowBackgroundColor",
-        "messageTextColor",
-        "buttonTextColor",
-        "buttonBackgroundColor",
-    )
-
-
-
-
-    ifLet(jarPath, httpServerPort, httpServerHost) { path, port, host ->
-        CoroutineScope(Dispatchers.Main).async(
-            context = Dispatchers.IO + NonCancellable,
-            start = CoroutineStart.LAZY
-        ) {
-            setupServer(path, port, host, formProperties).also {
-                Runtime.getRuntime().addShutdownHook(thread(start = false) {
-                    it.stop(0, 10, TimeUnit.SECONDS)
-                })
-            }.also {
-                it.start(true)
-            }
-        }.await()
-    }
-}
-
-/** Returns an instance of server with configuration from given entity .*/
-fun setupServer(jarPath: String, port: Int, host: String, formProperties: List<String>) = embeddedServer(CIO, port, host) {
-    install(ForwardedHeaders)
-    install(DefaultHeaders)
-    install(CallLogging)
-    install(Compression)
-    install(ConverterPlugin) {
-        this.jarPath = jarPath
-    }
-    install(IgnoreTrailingSlash)
-    install(CachingHeaders) {
-        options { _, _ -> CachingOptions(CacheControl.MaxAge(maxAgeSeconds = 0)) }
-    }
-    install(StatusPages)
-    install(Routing) {
-        post {
-            runCatching {
-                val parts = call.receiveMultipart().readAllParts().filter {
-                    formProperties.contains(it.name)
-                }
-                val partData = parts.map {
-                    when (it) {
-                        is PartData.FileItem -> LimitedSizeInputStream(it.streamProvider(), 500 * 1024).readBytes()
-                            .decodeToString()
-
-                        is PartData.FormItem -> it.value.takeIf { it.length < 500 * 1024 } ?: throw Exception()
-                        else -> throw Exception()
-                    }
-                }
-
-                // Convert the data.
-                val bytes = ByteArrayOutputStream().use {
-                    application.converter.submit(data, it)
-                    it.toByteArray()
-                }
-                // Apply header after conversion to prevent downloading failed page.
-                call.response.header(
-                    HttpHeaders.ContentDisposition,
-                    ContentDisposition.Attachment.withParameter(
-                        ContentDisposition.Parameters.FileName, "output.zip"
-                    ).toString()
-                )
-                // Respond with zipped output stream file.
-                call.respondBytes(
-                    contentType = ContentType.Application.Zip,
-                    status = HttpStatusCode.OK,
-                    bytes = bytes
-                )
-            }.getOrElse {
-                call.respondText(
-                    text = application.converter.getMessagePageContent().replace("\$title\$", "Failure").replace(
-                        "\$description\$", when (it) {
-                            is InputStreamSizeLimitReachedException -> "Submitted content is bigger than size limit (500 kB)."
-                            else -> "Conversion was not successful."
-                        }
-                    ),
-                    contentType = ContentType.Text.Html,
-                    status = HttpStatusCode.InternalServerError
-                )
-            }
-        }
-    }
-}.also {
-    Runtime.getRuntime().addShutdownHook(thread(start = false) {
-        it.stop(0, 10, TimeUnit.SECONDS)
-    })
-}.also {
-    it.start(true)
-}*/

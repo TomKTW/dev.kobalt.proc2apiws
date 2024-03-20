@@ -1,5 +1,5 @@
 /*
- * dev.kobalt.md2htmlws
+ * dev.kobalt.proc2apiws
  * Copyright (C) 2024 Tom.K
  *
  * This program is free software: you can redistribute it and/or modify
@@ -16,15 +16,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package dev.kobalt.md2htmlws.jvm.storage
+package dev.kobalt.proc2apiws.web.configuration
 
-/** Configuration for storage repository. */
-class StorageConfiguration(
-    var command: List<String>? = null
-) {
+/** Type of the standard input that will be received. */
+sealed class ConfigurationInputType {
 
-    companion object {
-        const val NAME = "Storage"
-    }
+    /** Standard input is not used. */
+    data object NoValue : ConfigurationInputType()
+
+    /** Standard input is based on string. */
+    class StringValue(val input: String) : ConfigurationInputType()
+
+    /** Standard input is based on bytes. */
+    class ByteArrayValue(val input: ByteArray) : ConfigurationInputType()
 
 }

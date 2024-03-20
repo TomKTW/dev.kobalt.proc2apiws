@@ -1,6 +1,6 @@
 /*
  * dev.kobalt.proc2apiws
- * Copyright (C) 2022 Tom.K
+ * Copyright (C) 2024 Tom.K
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by

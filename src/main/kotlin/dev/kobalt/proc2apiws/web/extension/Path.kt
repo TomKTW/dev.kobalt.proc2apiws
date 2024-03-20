@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package dev.kobalt.md2htmlws.jvm.extension
+package dev.kobalt.proc2apiws.web.extension
 
 import java.nio.file.Path
 

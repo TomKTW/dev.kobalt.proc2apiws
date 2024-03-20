@@ -1,5 +1,5 @@
 /*
- * dev.kobalt.md2htmlws
+ * dev.kobalt.proc2apiws
  * Copyright (C) 2024 Tom.K
  *
  * This program is free software: you can redistribute it and/or modify
@@ -16,10 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package dev.kobalt.md2htmlws.jvm.storage
+package dev.kobalt.proc2apiws.web.configuration
 
 import io.ktor.server.application.*
 import io.ktor.util.*
 
-/** Instance of storage repository. */
-val Application.storage: StorageRepository get() = attributes[AttributeKey(StorageConfiguration.NAME)]
+/** Instance of configuration repository. */
+val Application.configuration: ConfigurationRepository get() = attributes[AttributeKey(ConfigurationConfiguration.NAME)]

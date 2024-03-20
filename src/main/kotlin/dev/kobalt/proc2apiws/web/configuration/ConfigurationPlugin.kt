@@ -1,5 +1,5 @@
 /*
- * dev.kobalt.md2htmlws
+ * dev.kobalt.proc2apiws
  * Copyright (C) 2024 Tom.K
  *
  * This program is free software: you can redistribute it and/or modify
@@ -16,24 +16,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package dev.kobalt.md2htmlws.jvm.storage
+package dev.kobalt.proc2apiws.web.configuration
 
 import io.ktor.server.application.*
-import io.ktor.server.application.hooks.*
 import io.ktor.util.*
-import kotlin.io.path.Path
-import kotlin.io.path.createDirectory
-import kotlin.io.path.notExists
-import kotlin.jvm.optionals.getOrNull
 
-/** Plugin that provides an instance of storage repository. */
-val StoragePlugin = createApplicationPlugin(
-    name = StorageConfiguration.NAME,
-    createConfiguration = ::StorageConfiguration
+/** Plugin that provides an instance of configuration repository. */
+val ConfigurationPlugin = createApplicationPlugin(
+    name = ConfigurationConfiguration.NAME,
+    createConfiguration = ::ConfigurationConfiguration
 ) {
     application.attributes.put(
-        AttributeKey(StorageConfiguration.NAME),
-        StorageRepository(
+        AttributeKey(ConfigurationConfiguration.NAME),
+        ConfigurationRepository(
             command = pluginConfig.command!!,
         )
     )
