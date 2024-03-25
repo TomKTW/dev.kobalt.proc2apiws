@@ -77,7 +77,7 @@ class ConfigurationRepository(
         // Launch coroutine to read text or bytes from output stream.
         val stdoutJob = async(Dispatchers.IO) {
             when (stdout) {
-                is BufferedReader -> stdout.readText()
+                is BufferedReader -> outputStream.write(stdout.readText().toByteArray())
                 is BufferedInputStream -> outputStream.write(stdout.readBytes())
                 else -> throw Exception()
             }

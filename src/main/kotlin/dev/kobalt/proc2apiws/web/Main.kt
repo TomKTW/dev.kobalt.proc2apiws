@@ -197,13 +197,14 @@ fun setupServer(config: ConfigurationEntity) = embeddedServer(CIO, config.port, 
                 val contentType = ContentType.parse(config.outputContentType)
                 // Get output filename from override if defined. It will be replaced if '$outputFilename$' is defined in 'outputFilename'.
                 val outputOverrideFilename = outputOverride?.outputFilename.orEmpty()
-                    .replace("\$originalFilename\$", originalFilename ?: "file")
                 // Apply header after conversion to prevent downloading failed page.
                 call.response.header(
                     HttpHeaders.ContentDisposition,
                     ContentDisposition.Attachment.withParameter(
                         ContentDisposition.Parameters.FileName,
-                        config.outputFilename.replace("\$outputFilename\$", outputOverrideFilename)
+                        config.outputFilename
+                            .replace("\$originalFilename\$", originalFilename ?: "file")
+                            .replace("\$outputFilename\$", outputOverrideFilename)
                     ).toString()
                 )
                 // Respond with zipped output stream file.
